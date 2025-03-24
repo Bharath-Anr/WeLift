@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeLift - Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1CB5E0 0%, #000851 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            padding: 20px;
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            margin-top: 20px;
+        }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            margin: 10px;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            background: linear-gradient(to right, #4CAF50, #2E8B57);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .btn.danger { background-color: #f44336; }
+        .btn.danger:hover { background: linear-gradient(to right, #f44336, #d32f2f); }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border-bottom: 1px solid #ddd; }
+        th { background: linear-gradient(to right, #4CAF50, #2E8B57); color: white; }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background: linear-gradient(135deg, #ffffff, #f7f7f7);
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 300px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        h2, h3 {
+            color: #333;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Welcome, <span id="userName">User</span></h2>
+        <button class="btn" onclick="openGoalModal()">Go to Workout</button>
+        <button class="btn danger" onclick="logout()">Logout</button>
+
+        <h3>Workout History</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date & Time</th>
+                    <th>Total Sit-ups</th>
+                    <th>Correct</th>
+                    <th>Incorrect</th>
+                </tr>
+            </thead>
+            <tbody id="workoutsTable"></tbody>
+        </table>
+    </div>
+
+    <!-- Goal Setting Modal -->
+    <div id="goalModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeGoalModal()">&times;</span>
+            <h3>Set Your Sit-Up Goal</h3>
+            <p>How many sit-ups would you like to do?</p>
+            <input type="number" id="situpGoal" min="1" value="10">
+            <button class="btn" onclick="startWorkout()">Start Workout</button>
+        </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('weliftToken');
+        if (!token) window.location.href = 'login.html';
+
+        const API_URL = 'http://localhost:3000/api';
+
+        async function fetchWorkouts() {
+            const response = await fetch(`${API_URL}/workouts`, { headers: { 'x-auth-token': token } });
+            const workouts = await response.json();
+            const table = document.getElementById('workoutsTable');
+            workouts.forEach(workout => {
+                table.innerHTML += `<tr>
+                    <td>${new Date(workout.date).toLocaleString()}</td>
+                    <td>${workout.totalCount}</td>
+                    <td>${workout.correctCount}</td>
+                    <td>${workout.incorrectCount}</td>
+                </tr>`;
+            });
+        }
+
+        function logout() { localStorage.removeItem('weliftToken'); window.location.href = 'login.html'; }
+
+        // Goal setting modal functions
+        function openGoalModal() {
+            document.getElementById('goalModal').style.display = 'block';
+        }
+
+        function closeGoalModal() {
+            document.getElementById('goalModal').style.display = 'none';
+        }
+
+        function startWorkout() {
+            const goal = document.getElementById('situpGoal').value;
+            if (goal < 1) {
+                alert('Please set a valid goal');
+                return;
+            }
+            
+            // Store the goal in localStorage
+            localStorage.setItem('situpGoal', goal);
+            
+            // Navigate to the workout page
+            window.location.href = 'trying1.html';
+        }
+
+        // Close the modal if clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('goalModal');
+            if (event.target == modal) {
+                closeGoalModal();
+            }
+        }
+
+        fetchWorkouts();
+    </script>
+
+</body>
+</html>

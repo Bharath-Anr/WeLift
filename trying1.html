@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeLift - AI Sit-Up Counter</title>
+
+    <!-- MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 90%;
+            max-width: 1200px;
+        }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        .counter {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+        .goal {
+            font-size: 20px;
+            color: #ff6b00;
+            margin: 10px 0;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            margin: 0 auto;
+        }
+        video {
+            width: 100%;
+            max-height: 70vh;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .goal-achieved {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { color: #ff6b00; }
+            50% { color: #4CAF50; }
+            100% { color: #ff6b00; }
+        }
+    </style>
+</head>
+
+<body>
+
+    <script>
+        // 🔒 Ensure user is logged in before accessing this page
+        const token = localStorage.getItem('weliftToken');
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+    </script>
+    
+    <!-- Audio element for goal completion sound -->
+    <audio id="goalSound" src="https://assets.mixkit.co/active_storage/sfx/2099/2099-preview.mp3" preload="auto"></audio>
+    <div class="container">
+        <h2>WeLift - Sit-Up Counter</h2>
+        <p></p>
+        
+        <!-- Goal Display -->
+        <div class="goal" id="goalDisplay">Goal: Loading...</div>
+
+        <!-- Live Video Feed with Overlay Canvas -->
+        <div class="video-container">
+            <video class="input_video" autoplay></video>
+            <canvas class="output_canvas"></canvas>
+        </div>
+
+        <!-- Counters -->
+        <div class="counter" id="counter">Total: 0</div>
+        <div class="counter" id="counter_correct" style="color:green;">Correct: 0</div>
+        <div class="counter" id="counter_incorrect" style="color:red;">Incorrect: 0</div>
+        <div class="counter" id="print_suggestion" style="color:blue;">Get Ready!</div>
+
+        <!-- Action Buttons -->
+        <button class="btn" onclick="saveWorkout()">Save Workout</button>
+        <button class="btn" onclick="location.href='dashboard.html'">Back to Dashboard</button>
+    </div>
+
+    <script>
+        let counter = 0;
+        let counter_correct = 0;
+        let counter_incorrect = 0;
+        let print_suggestion = "Prepare for Situp Exercise";
+        let in_frame = 0;
+        let in_position = 0;
+        let stage = 0;
+        let goalAchieved = false;
+        
+        // Retrieve the goal from localStorage
+        const situpGoal = parseInt(localStorage.getItem('situpGoal')) || 10;
+        document.getElementById('goalDisplay').textContent = `Goal: ${situpGoal} sit-ups`;
+        
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d');
+        const goalSound = document.getElementById('goalSound');
+
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                } 
+            });
+            videoElement.srcObject = stream;
+            
+            // Set canvas dimensions after video metadata is loaded
+            videoElement.onloadedmetadata = () => {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+            };
+            
+            return new Promise((resolve) => {
+                videoElement.onloadeddata = () => {
+                    resolve(videoElement);
+                };
+            });
+        }
+
+        function findAngle(A, B, C) {
+            let AB = Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
+            let BC = Math.sqrt(Math.pow(B.x - C.x, 2) + Math.pow(B.y - C.y, 2));
+            let AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
+            return Math.acos((BC * BC + AB * AB - AC * AC) / (2 * BC * AB)) * (180 / Math.PI);
+        }
+
+        function checkConfidence(p1, p2, p3) {
+            return (p1.visibility > 0.7 && p2.visibility > 0.7 && p3.visibility > 0.7);
+        }
+        
+        function checkGoalAchievement() {
+            if (counter_correct >= situpGoal && !goalAchieved) {
+                // Goal achieved!
+                goalAchieved = true;
+                
+                // Play sound
+                goalSound.play().catch(e => console.log("Error playing sound:", e));
+                
+                // Visual feedback - animate the goal text
+                const goalDisplay = document.getElementById('goalDisplay');
+                goalDisplay.textContent = `Congratulations! Goal of ${situpGoal} sit-ups achieved! 🎉`;
+                goalDisplay.classList.add('goal-achieved');
+            }
+        }
+
+        function onResults(results) {
+            // Clear the canvas
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw the pose landmarks
+            if (results.poseLandmarks) {
+                // Draw the pose landmarks
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+                drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#FF0000', lineWidth: 2, radius: 6});
+                
+                const res = results.poseLandmarks;
+
+                if (checkConfidence(res[11], res[23], res[25]) || checkConfidence(res[12], res[24], res[26])) {
+                    in_frame = 1;
+                } else {
+                    in_frame = 0;
+                }
+
+                if (!in_frame) {
+                    print_suggestion = "Get into the frame!";
+                } else {
+                    let situp_knee_angle = findAngle(res[24], res[26], res[28]);
+
+                    if (situp_knee_angle < 60) {
+                        in_position = 1;
+                    } else {
+                        in_position = 0;
+                    }
+
+                    if (!in_position) {
+                        print_suggestion = "Lie Down, Bring your knees closer!";
+                    } else {
+                        let situp_main_angle = findAngle(res[12], res[24], res[26]);
+
+                        if (situp_main_angle < 45 && stage === 0) {
+                            stage = 1;
+                        }
+                        if (situp_main_angle < 30 && stage === 1) {
+                            stage = 2;
+                        }
+                        if ((stage === 1 || stage === 2) && situp_main_angle > 90) {
+                            if (stage === 2) {
+                                counter_correct++;
+                                print_suggestion = "Good Job! Keep Going!";
+                                
+                                // Check if goal is achieved after each correct sit-up
+                                checkGoalAchievement();
+                            } else {
+                                counter_incorrect++;
+                                print_suggestion = "Chest must touch your knees!";
+                            }
+                            counter++;
+                            stage = 0;
+                        }
+                    }
+                }
+
+                document.getElementById("counter").innerText = `Total: ${counter}`;
+                document.getElementById("counter_correct").innerText = `Correct: ${counter_correct}`;
+                document.getElementById("counter_incorrect").innerText = `Incorrect: ${counter_incorrect}`;
+                document.getElementById("print_suggestion").innerText = print_suggestion;
+            }
+            
+            canvasCtx.restore();
+        }
+
+        function saveWorkout() {
+            if (counter === 0) {
+                alert("No sit-ups recorded!");
+                return;
+            }
+
+            fetch('http://localhost:3000/api/workouts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-auth-token': localStorage.getItem('weliftToken')
+                },
+                body: JSON.stringify({ totalCount: counter, correctCount: counter_correct, incorrectCount: counter_incorrect })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert("Workout saved successfully!");
+                counter = counter_correct = counter_incorrect = 0;
+                goalAchieved = false;
+                document.getElementById('goalDisplay').classList.remove('goal-achieved');
+                document.getElementById('goalDisplay').textContent = `Goal: ${situpGoal} sit-ups`;
+            })
+            .catch(error => {
+                console.error("Error saving workout:", error);
+                alert("Failed to save workout.");
+            });
+        }
+
+        async function init() {
+            await setupCamera();
+            
+            const pose = new Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            });
+            
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
+            pose.onResults(onResults);
+            
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await pose.send({image: videoElement});
+                },
+                width: 1280,
+                height: 720
+            });
+            
+            camera.start();
+        }
+
+        // Start the application
+        init();
+    </script>
+
+</body>
+</html>
